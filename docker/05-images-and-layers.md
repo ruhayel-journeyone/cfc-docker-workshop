@@ -1,0 +1,305 @@
+# Layered Architecture
+
+## Understanding Docker Layers
+
+Docker images are built using a layered architecture, where each instruction in the Dockerfile creates a new layer:
+
+1. `FROM` instruction starts with a base image layer.
+2. `RUN` adds a layer (e.g., installing software).
+3. `COPY` adds a layer with files from the host.
+4. `WORKDIR` sets the working directory.
+5. Another `RUN` might add a layer for installing dependencies.
+
+These layers are stacked, and Docker caches them to improve efficiency.
+
+### Step 1: Preparing Your Application Files
+
+1. **Application Files (`app.py`)**:
+
+    ```python
+    from flask import Flask
+    app = Flask(__name__)
+
+    @app.route('/')
+    def hello_world():
+        return 'Hello, Docker!'
+
+    if __name__ == '__main__':
+        app.run(debug=True, host='0.0.0.0')
+    ```
+
+2. **Requirements File (`requirements.txt`)**:
+
+    ```text
+    flask
+    ```
+
+### Step 2: Creating the Dockerfile
+
+Your Dockerfile should look like this:
+
+```Dockerfile
+FROM python:3.8
+
+COPY . /app
+WORKDIR /app
+RUN pip install -r requirements.txt
+
+CMD ["python", "./app.py"]
+```
+
+### Step 3: Verify the final directory structure
+
+```text
+/my-python-app
+|-- Dockerfile
+|-- requirements.txt
+|-- app.py
+```
+
+### Step 4: Building the Docker Image
+
+Navigate to the directory containing your Dockerfile and run:
+
+```bash
+docker build -t my-python-app .
+```
+
+### Step 5: Inspecting and Analyzing Layers
+
+- **History and Size of Each Layer**:
+
+  ```bash
+  docker history my-python-app
+  ```
+  
+  You should see something like the following:
+
+  ```shell
+  (base) ruraljuror@lamington-lopez:~/code/cfc-docker-workshop/docker/05-resources$ docker history my-python-app:latest                                                                                                                         
+  IMAGE          CREATED         CREATED BY                                      SIZE      COMMENT                                                                                                                                              
+  6d5714721910   6 minutes ago   CMD ["python" "./app.py"]                       0B        buildkit.dockerfile.v0
+  <missing>      6 minutes ago   RUN /bin/sh -c pip install -r requirements.t…   11.2MB    buildkit.dockerfile.v0
+  <missing>      7 minutes ago   WORKDIR /app                                    0B        buildkit.dockerfile.v0
+  <missing>      7 minutes ago   COPY . /app # buildkit                          288B      buildkit.dockerfile.v0
+  <missing>      2 months ago    CMD ["python3"]                                 0B        buildkit.dockerfile.v0
+  <missing>      2 months ago    RUN /bin/sh -c set -eux;   wget -O get-pip.p…   9.91MB    buildkit.dockerfile.v0
+  <missing>      2 months ago    ENV PYTHON_GET_PIP_SHA256=9cc01665956d22b3bf…   0B        buildkit.dockerfile.v0
+  <missing>      2 months ago    ENV PYTHON_GET_PIP_URL=https://github.com/py…   0B        buildkit.dockerfile.v0
+  <missing>      2 months ago    ENV PYTHON_SETUPTOOLS_VERSION=57.5.0            0B        buildkit.dockerfile.v0
+  <missing>      2 months ago    ENV PYTHON_PIP_VERSION=23.0.1                   0B        buildkit.dockerfile.v0
+  <missing>      2 months ago    RUN /bin/sh -c set -eux;  for src in idle3 p…   32B       buildkit.dockerfile.v0
+  <missing>      2 months ago    RUN /bin/sh -c set -eux;   wget -O python.ta…   40.2MB    buildkit.dockerfile.v0
+  <missing>      2 months ago    ENV PYTHON_VERSION=3.8.18                       0B        buildkit.dockerfile.v0
+  <missing>      2 months ago    ENV GPG_KEY=E3FF2839C048B25C084DEBE9B26995E3…   0B        buildkit.dockerfile.v0
+  <missing>      2 months ago    RUN /bin/sh -c set -eux;  apt-get update;  a…   18.6MB    buildkit.dockerfile.v0
+  <missing>      2 months ago    ENV LANG=C.UTF-8                                0B        buildkit.dockerfile.v0
+  <missing>      2 months ago    ENV PATH=/usr/local/bin:/usr/local/sbin:/usr…   0B        buildkit.dockerfile.v0
+  <missing>      26 hours ago    /bin/sh -c set -ex;  apt-get update;  apt-ge…   587MB     
+  <missing>      26 hours ago    /bin/sh -c apt-get update && apt-get install…   177MB     
+  <missing>      26 hours ago    /bin/sh -c set -eux;  apt-get update;  apt-g…   48.4MB    
+  <missing>      28 hours ago    /bin/sh -c #(nop)  CMD ["bash"]                 0B        
+  <missing>      28 hours ago    /bin/sh -c #(nop) ADD file:077a3156bd8271f26…   117MB    
+  ```
+
+  Each line in the output represents a layer in the Docker image `my-python-app:latest`. Let's break down each line:
+
+  1. **`6d5714721910`**:
+     - **Created**: 6 minutes ago.
+     - **Created By**: `CMD ["python" "./app.py"]` indicates the default command that will be executed when a container is started from this image.
+     - **Size**: 0B, meaning no additional size is added to the image by this layer.
+     - **Comment**: Generated by buildkit (Docker's build system).
+
+  2. **`<missing>`**:
+     - **Created**: 6 minutes ago.
+     - **Created By**: `RUN /bin/sh -c pip install -r requirements.txt` indicates that this layer installs Python dependencies listed in `requirements.txt`.
+     - **Size**: 11.2MB added by this layer.
+     - **Comment**: buildkit.dockerfile.v0.
+
+  3. **`<missing>`**:
+     - **WORKDIR /app**: Sets the working directory inside the container to `/app`.
+     - **Size**: 0B.
+
+  4. **`<missing>`**:
+     - **COPY . /app**: Copies the contents of the current directory into the `/app` directory inside the container.
+     - **Size**: 288B added by this layer.
+
+  5. **Several `<missing>` Layers**:
+     - These layers, created 2 months ago, are part of the base image used to create `my-python-app:latest`. They include setting environment variables, installing Python and its dependencies, and configuring the system. The sizes vary, with some adding significant data to the image (up to 587MB).
+
+  6. **Final `<missing>` Layers**:
+     - The last few layers are likely part of the original base image, setting up the base operating system and its configuration. These include basic system setup, installation of necessary packages, and setting environment variables.
+
+  The term `<missing>` in the `IMAGE` column indicates that these layers are part of the base image and are not separately tagged or identified as individual images. They contribute to the final image but don't have their own identifiers in this context.
+
+  In summary, `docker history my-python-app:latest` shows the sequence of layers that make up the Docker image, detailing the operations performed in each layer, the size added by each layer, and the order in which these operations were executed during the image build process.
+
+- **Detailed Inspection**:
+
+   ```bash
+   docker image inspect my-python-app
+   ```
+
+   You should see the following output:
+
+  ```shell
+   [
+      {
+         "Id": "sha256:6d57147219103f89f28e63670eecbcd01f154f5bb4cdb2ca2fb6aae04522cf1f",
+         "RepoTags": [
+               "my-python-app:latest"
+         ],
+         "RepoDigests": [],
+         "Parent": "",
+         "Comment": "buildkit.dockerfile.v0",
+         "Created": "2024-01-12T14:07:25.806469309+08:00",
+         "Container": "",
+         "ContainerConfig": {
+               "Hostname": "",
+               "Domainname": "",
+               "User": "",
+               "AttachStdin": false,
+               "AttachStdout": false,
+               "AttachStderr": false,
+               "Tty": false,
+               "OpenStdin": false,
+               "StdinOnce": false,
+               "Env": null,
+               "Cmd": null,
+               "Image": "",
+               "Volumes": null,
+               "WorkingDir": "",
+               "Entrypoint": null,
+               "OnBuild": null,
+               "Labels": null
+         },
+         "DockerVersion": "",
+         "Author": "",
+         "Config": {
+               "Hostname": "",
+               "Domainname": "",
+               "User": "",
+               "AttachStdin": false,
+               "AttachStdout": false,
+               "AttachStderr": false,
+               "Tty": false,
+               "OpenStdin": false,
+               "StdinOnce": false,
+               "Env": [
+                  "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                  "LANG=C.UTF-8",
+                  "GPG_KEY=E3FF2839C048B25C084DEBE9B26995E310250568",
+                  "PYTHON_VERSION=3.8.18",
+                  "PYTHON_PIP_VERSION=23.0.1",
+                  "PYTHON_SETUPTOOLS_VERSION=57.5.0",
+                  "PYTHON_GET_PIP_URL=https://github.com/pypa/get-pip/raw/4cfa4081d27285bda1220a62a5ebf5b4bd749cdb/public/get-pip.py",
+                  "PYTHON_GET_PIP_SHA256=9cc01665956d22b3bf057ae8287b035827bfd895da235bcea200ab3b811790b6"
+               ],
+               "Cmd": [
+                  "python",
+                  "./app.py"
+               ],
+               "ArgsEscaped": true,
+               "Image": "",
+               "Volumes": null,
+               "WorkingDir": "/app",
+               "Entrypoint": null,
+               "OnBuild": null,
+               "Labels": null
+         },
+         "Architecture": "amd64",
+         "Os": "linux",
+         "Size": 1008819014,
+         "VirtualSize": 1008819014,
+         "GraphDriver": {
+               "Data": {
+                  "LowerDir": "/var/lib/docker/overlay2/v2qdynhsipsctxqhakylg8371/diff:/var/lib/docker/overlay2/diagg6ihhp8naswhkh61jt7d7/diff:/var/lib/docker/overlay2/26f43e748b7d4627cf3de5e64baa2fd886ae29376a3b60a1302a99ae4d01e8fd/diff:/var/lib/docker/overlay2/9b51f7b064c26095a2355ca4821126bd82f724ab5383f966b92e4d18044215f1/diff:/var/lib/docker/overlay2/86128693beff75a891adc6bab7de26f4448ca37d31a9812f4f4bf29acf79ff88/diff:/var/lib/docker/overlay2/a9e0b7a40be6406f581d5c996fa60ab0219528882d160ab81843796a263951cb/diff:/var/lib/docker/overlay2/a73201d21e196a87c7503fce80392a4f009f210dd37dc5b8c01337edb174cd8f/diff:/var/lib/docker/overlay2/9b76ba29c30b77312838a9d9746d6fcda1d0045b1a16cf55065d271cb4360a09/diff:/var/lib/docker/overlay2/e0eb96d3977b607216ee8dfbc4d8429ada77b464a14e488761f8324eb168b25d/diff:/var/lib/docker/overlay2/f0ead026f8063de444cf200b36de3b9f3f00e7bc934885eb3fd66bbf86b3b8bf/diff",
+                  "MergedDir": "/var/lib/docker/overlay2/lhl2rpvl7crdh2xmz1fsvwm8r/merged",
+                  "UpperDir": "/var/lib/docker/overlay2/lhl2rpvl7crdh2xmz1fsvwm8r/diff",
+                  "WorkDir": "/var/lib/docker/overlay2/lhl2rpvl7crdh2xmz1fsvwm8r/work"
+               },
+               "Name": "overlay2"
+         },
+         "RootFS": {
+               "Type": "layers",
+               "Layers": [
+                  "sha256:aa904f36746c93c02f6a8274517544fad89782f989cc95e46d3cd8b4977dbdf8",
+                  "sha256:0dfa23fffa4172cf4a9768b4c783b56081013c5ad0a7391070c4d7f55e93ab61",
+                  "sha256:2b952ea61c4b4d79f18f9eb97a259d4bbf74e1d9be0ee6f4f4227b5cfe2b7b2f",
+                  "sha256:671f9916da8d34d8e4f4c5b2c3f397c986db0ab76ec347c663c34daf51c085eb",
+                  "sha256:3479e3189b94aaebaaea305a32b74a1e6203c0fa791c5063592844527c48fb66",
+                  "sha256:0ddef1b6cf2a7583676268fcd90905ba6c9ee3d8fe3801ce43f3902f8c4e8b00",
+                  "sha256:4ab8863fa71da059423434452ffef3c58458eab7732ac38bdfb375342041835e",
+                  "sha256:cb19844282a25a02445c277081dd2cabcca6044df489cc7b3eaefeab8e4ce367",
+                  "sha256:3e44181279fb7e477ccaf3a6e06124cf6acd41d7eb26a28bbf8fd7c7097337b0",
+                  "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+                  "sha256:54a120e3e32152a333ba9ee598587217bfbe492ba39bc06d637dcc1dc9fa7a08"
+               ]
+         },
+         "Metadata": {
+               "LastTagTime": "2024-01-12T14:07:25.99776195+08:00"
+         }
+      }
+   ]
+  ```
+
+  Let's break down the key parts of this output:
+
+  1. **Image Identification**:
+     - `"Id": "sha256:6d57147219103f89f28e63670eecbcd01f154f5bb4cdb2ca2fb6aae04522cf1f"`: The unique SHA256 identifier for the Docker image.
+     - `"RepoTags": ["my-python-app:latest"]`: The repository tag for the image, here it is `my-python-app` with the tag `latest`.
+     - `"RepoDigests": []`: The repository digests. It's empty in this case, meaning no digest is associated with the image.
+
+  2. **Image Metadata**:
+     - `"Created": "2024-01-12T14:07:25.806469309+08:00"`: The date and time when the image was created.
+     - `"Comment": "buildkit.dockerfile.v0"`: A comment associated with the image, often indicating the build tool or method used.
+
+  3. **Container Configuration**:
+     - `"ContainerConfig"`: This section contains the configuration that was in effect at the time the image was created. It includes settings like `Hostname`, `User`, `Env` (environment variables), etc. Most fields are empty or set to default values in this output.
+
+  4. **Image Configuration**:
+     - `"Config"`: This section shows the configuration that will be used when a container is run from this image. It includes settings like `Env` (environment variables such as `PATH`, `LANG`, `PYTHON_VERSION`, etc.), `Cmd` (default command to run, which is `python ./app.py`), and `WorkingDir` (set to `/app`).
+
+  5. **Architecture and OS**:
+     - `"Architecture": "amd64"`: Indicates the architecture of the system the image is built for.
+     - `"Os": "linux"`: The operating system used in the image.
+
+  6. **Size**:
+     - `"Size": 1008819014`: The size of the image in bytes.
+     - `"VirtualSize": 1008819014`: The total size of the image including all its layers.
+
+  7. **GraphDriver**:
+     - `"GraphDriver"`: Contains information about the storage driver used for the image layers. It includes paths to various directories like `LowerDir`, `UpperDir`, etc., which are part of Docker's layered filesystem.
+
+  8. **RootFS**:
+     - `"RootFS"`: Describes the layers of the image's filesystem. Each `sha256` hash represents a layer in the image.
+
+  9. **Metadata**:
+     - `"LastTagTime": "2024-01-12T14:07:25.99776195+08:00"`: The last time this image was tagged.
+
+  In summary, this output provides a detailed look at the internal configuration, metadata, filesystem layers, and other attributes of the `my-python-app` Docker image. This information is crucial for understanding the construction and characteristics of the Docker image.
+
+### Step 6: Running the Docker Container
+
+To run your Docker container:
+
+```bash
+docker run -p 5000:5000 my-python-app
+```
+
+### Step 7: Accessing Your Application
+
+Access your application at `http://localhost:5000`.
+
+## Benefits of Layered Architecture
+
+- **Efficiency in Storage:** Common layers across images are stored only once on a host.
+- **Speed:** When building or pulling an image, only the layers that don't exist on the host need to be pulled or built.
+- **Layer Caching:** If a layer hasn't changed (e.g., your source code hasn't changed), Docker uses the cached layer, speeding up the build process.
+
+## Best Practices
+
+- Minimize the number of layers: Combine RUN commands where possible.
+- Order your layers: Place layers that change less frequently (like installing dependencies) before layers that change more often (like copying source code).
+
+This layered architecture is a key feature that makes Docker efficient and fast for development and deployment workflows. By understanding and optimizing the layers in your Docker images, you can build more efficient and maintainable containers.
